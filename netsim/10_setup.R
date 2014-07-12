@@ -1,11 +1,20 @@
 #!/usr/bin/env Rscript
 
-# This script will copy over the time-series and ground-truth matrices from matlab format to text files
+# This script will first download the netsim data (if it isn't already there)
+# and then convert the time-series and ground-truth matrices from matlab format to text files
 # * ts: Ntimepoints x Nnodes (contains all subjects' timeseries concatenated)
 # * net: Nsubjects x Nnodes x Nnodes (contains the ground truth networks)
 
 library(R.matlab)
-datadir <- "~/data/fsl_sims"
+
+# Create output data directory
+datadir <- "data"
+if (!file.exists(datadir)) dir.create(datadir)
+
+# Download the data and extract
+download.file("http://fsl.fmrib.ox.ac.uk/analysis/netsim/sims.tar.gz", "data/sims.tar.gz", method="auto")
+system(sprintf("cd %s; tar -xzvf sims.tar.gz", datadir))
+file.remove(file.path(datadir, "sims.tar.gz"))
 
 # First we move any 1-9 files
 for (i in 1:9) {
@@ -43,7 +52,7 @@ for (i in 2:28) {
     
     ## Save
     cat("...save\n")
-    save(ts, net, file=outfile)
+    save(nsubs, nnodes, ntpts, ts, net, file=outfile)
     for (j in 1:nsubs) {
         sub.ts  <- ts[j,,]
         tsfile  <- file.path(outdir, sprintf("sub%02i_ts.txt", j))
