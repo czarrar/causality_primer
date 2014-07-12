@@ -27,7 +27,7 @@ for (i in 1:9) {
 }
 
 # Second we read in each of the simulations and save them in text file format
-for (i in 2:28) {
+for (i in 1:28) {
     cat("simulation", i, "\n")
     
     ## Paths

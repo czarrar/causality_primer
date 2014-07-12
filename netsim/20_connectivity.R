@@ -4,8 +4,8 @@
 #' 
 #' Let's read in the data.
 #+ read
-net   <- as.matrix(read.table("sub01_net.txt")) # reference
-ts    <- as.matrix(read.table("sub01_ts.txt"))
+net   <- as.matrix(read.table("data/sim01/sub01_net.txt")) # reference
+ts    <- as.matrix(read.table("data/sim01/sub01_ts.txt"))
 
 #+ compute the correlation
 upper <- function(x) x[upper.tri(x)]
