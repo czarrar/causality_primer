@@ -1,0 +1,107 @@
+---
+title: "Connectivity via Random Data"
+author: "Zarrar Shehzad"
+date: "07/11/2014"
+output: html_document
+---
+
+Here, I want to test out different approaches for randomizing time-series data with the goal of creating a null model that can be used to set a threshold (e.g., p < 0.01) for correlations between time-series. As an aside, if we are doing a task-based analysis, I wonder about the utility of using resting-state scans for the simulated data (e.g., randomly chop up in the same length as our trials). At the very least, this could serve as a good baseline even if it isn't very random.
+
+Anyway, so I will be using some of the Steve Smith et al (200?) resting-state simulations to see how well the different randomization techniques work in generating a threshold for my correlations. A good randomization technique should help set a threshold that minimizes false positives and/or false negatives while maximizing detection of true positives and/or true negatives.
+
+The different techniques are:
+
+* using the normal distribution (r -> t-val -> p-val)
+* tsboot
+* tsbootstrap
+* meboot
+* wavelet bootstrapping
+
+# Setup
+
+Let's read in the data. Eventually I'd like to have this data at some central location so I could do all my business here below (e.g., having it up on a dropbox public folder). Anyway, for now this is all done locally on my computer. I will be using data from simulation 4 since it has the most nodes (50), which allows more comparisons to be made. For now, I will apply this to only one subject.
+
+Let's read in the data. `net` is the ground truth network (nnodes x nnodes) and `ts` is the time-series data (ntpts x nnodes). I have a function `upper` to only use the upper half of a matrix to correspond to the use of the upper half in `net` to represent the connections.
+
+```{r}
+setwd("~/data/fsl_sims/sim04")
+net   <- as.matrix(read.table("sub01_net.txt")) # reference
+ts    <- as.matrix(read.table("sub01_ts.txt"))
+
+# All the good stuff is in the upper half (i.e., actual connections)
+upper <- function(x) x[upper.tri(x)]
+```
+
+I will now compute both the full correlations and several different approaches for a partial/inverse covariance style matrix. The partial correlation approaches that I ended up choosing automatically estimate the lambda so that works well. I combine each of the correlation matrices together for easier analysis/comparison.
+
+```{r}
+# Function that calculates numerous correlation/covariance measures
+compute_correlations <- function(ts) {
+  cat("full correlation\n")
+  corr.full <- cor(ts)
+  
+  cat("inverse covariance\n")
+  pcorr.icov <- -solve(cov(ts))
+  
+  cat("inverse covariance with shrinkage (corpcor)\n")
+  library(corpcor)
+  pcorr.invcov <- -cov2cor(invcov.shrink(ts))
+  
+  # ICOV: graphical lasso
+  ## I do not know how to use cross validation to do this so for next time
+  library(glasso)
+  
+  # ICOV: lasso
+  cat("partial correlations via adaptive lasso (parcor)\n")
+  library(parcor)
+  tmp <- adalasso.net(ts, k=5)
+  pcorr.lasso <- tmp$pcor.adalasso
+  
+  # ICOV: ridge
+  cat("partial correlations via ridge regression (parcor)\n")
+  library(parcor)
+  tmp <- ridge.net(ts, k=5)
+  pcorr.ridge <- tmp$pcor
+  cat("\n")
+  
+  # ICOV: Ledoit-Wolf
+  cat("inverse covariance with ledoit-wolf shrinkage (BurStFin)\n")
+  library(BurStFin)
+  ctmp <- var.shrink.eqcor(ts)
+  itmp <- -solve(ctmp)
+  pcorr.lw <- cov2cor(itmp)
+  
+  # Combine together into one list
+  cmats <- list(
+    full=corr.full, icov=pcorr.icov, invcov=pcorr.invcov, lasso=pcorr.lasso, ridge=pcorr.ridge, lw=pcorr.lw
+  )
+}
+
+cmats.orig <- compute_correlations(ts)
+```
+
+I can now test how well these results do (without any thresholding) by getting the average positive and average negative results.
+
+```{r}
+ztrue <- function(x) mean(upper(x)[upper(net)!=0])
+zfalse <- function(x) mean(upper(x)[upper(net)==0])
+zmse <- function(x) mean(sqrt((upper(x)[upper(net)!=0] - upper(net)[upper(net)!=0])^2))
+
+ret <- sapply(cmats.orig, function(cmat) {
+  zt <- ztrue(cmat)
+  zf <- zfalse(cmat)
+  zm <- zmse(cmat)
+  zd <- zt - zf
+  c(true=zt, false=zf, diff=zd, mse=zm)
+})
+
+ret
+```
+
+You can also embed plots, for example:
+
+```{r, echo=FALSE}
+plot(cars)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
