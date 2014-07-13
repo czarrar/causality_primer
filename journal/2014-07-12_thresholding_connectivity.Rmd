@@ -1,0 +1,228 @@
+---
+title: "Thresholding Connectivity"
+author: "Zarrar Shehzad"
+date: "July 12, 2014"
+output: html_document
+---
+
+
+STUFF HERE
+
+An important step in any connectivity or even causal connectivity analysis is determining the undirected connections. In our other file, we looked at different approaches to estimating connectivity via full or partial connectivity. Here, we will take those weighted results and attempt to threshold them to form an adjacency or unweighted matrix. There are several approaches that I will look at with the majority depending on randomized data to form a null distribution.
+
+Goal is to set a threshold that minimizes false positives and/or false negatives while maximizing detection of true positives and/or true negatives.
+
+* Normal Distribution
+* FDR (with normal distribution)
+* Lasso Test
+* Randomization Techniques
+
+A straightforward question is whether the randomization techniques offer an advantage in sensitivity and specificity as they are much more computationally intensive. Some other issues with the randomization techniques is if the data is non-stationary. Not sure which of the techniques are sensitive or insensitive to this.
+
+# Setup
+
+```{r}
+library(plyr)
+
+net   <- as.matrix(read.table("data/sim04/sub01_net.txt")) # reference
+ts    <- as.matrix(read.table("data/sim04/sub01_ts.txt"))
+
+# All the good stuff is in the upper half (i.e., actual connections)
+upper <- function(x) x[upper.tri(x)]
+
+# Pval to Zval
+p2z <- function(x) qt(x, Inf, lower.tail=F)
+```
+
+
+# Normal Distribution
+
+In this approach, we can transform a correlation to a t-value and then to a p-value (and vice-versa). The idea is that if a correlation follows a normal distribution, then we can determine significance via a common/reasonable threshold such as p < 0.01. To get this threshold, we use a function in the R package `fdrtool`.
+
+Here we play around with the code a bit.
+
+```{r}
+library(fdrtool)
+kappa_for_cor  <- function(ts) nrow(ts) - 1
+kappa_for_pcor <- function(ts) nrow(ts) - ncol(ts) + 1
+  
+cmat  <- cor(ts)
+cvec  <- upper(cmat)
+kappa <- kappa_for_cor(ts)
+# we can convert r->p
+pvec  <- pcor0(cvec, kappa, lower.tail=F)
+# or, we can get the r-threshold given a p-threshold
+rthr  <- qcor0(0.05, kappa, lower.tail=F)
+# compare (should be same)
+all.equal(pvec<0.05, cvec>rthr)
+
+kappa <- kappa_for_cor(ts)
+rthr1 <- qcor0(0.05/2, kappa, lower.tail=F)
+kappa <- kappa_for_pcor(ts)
+rthr2 <- qcor0(0.05/2, kappa, lower.tail=F)
+cat("threshold for pairwise correlations", rthr1, "\n")
+cat("threshold for partial correlations", rthr2, "\n")
+
+nsigs1 <- abs(cvec) > rthr1
+nsigs2 <- abs(cvec) > rthr2
+```
+
+Now we can write a function to determine the non-zero voxels.
+
+```{r}
+#?
+```
+
+## Kappa
+
+One of the inputs to `pcor0` is `kappa`, which is the degrees of freedom of the distribution. The value of kappa will depend on the number of time-points (n) and the number of nodes considered (p). For a simple correlation between two variables, we get `kappa = n-1`. And for a partial correlation (conditioned on p-2 remaining variables) the degrees of freedom is `kappa = (n-1) - (p-2) = n - p + 1`.
+
+What I'm a little confused with is what to do in the case of the graphical lasso where a shrinkage paramater is used and so you are doing something between a full and partial correlation (**TODO: FIND OUT**). For now, I'll just considered those cases (graphical lasso) as having the same kappa as the full partial correlation. This can be seen in the code above...
+
+
+## FDR
+
+```{r}
+library(fdrtool)
+fvec <- fdrtool(cvec, statistic="correlation", plot=F)
+fdr$qval # estimated fdr values
+fdr$lfdr # estimated local fdr
+```
+
+
+## Lasso Test
+
+```{r}
+library(lassoscore)
+glasso_cv
+```
+
+
+## Randomization Techniques
+
+I'll put together some general functions first. The overall goal here is to create a null distribution of my test statistic and compare my original statistic to this distribution. So I'll want a function that takes in each permuted/resampled time-series and computes the correlations or whatever statistic. Then I would compare these correlations based on permuted data to the correlations of the original data to get p-values.
+
+### Setup
+
+```{r}
+nperms <- 499
+
+```
+
+### Bootstrapped Time-Series
+
+For each technique, I might want a wrapper function to gather all the needed time-series in the format I need. In each case, the output would be ntpts x nnodes x nperms. Notice that I add the original time-series as the first one to the bootstrapped results below.
+
+```{r}
+boot.ts.tseries <- function(ts, nperms, type="block", ...) {
+  library(tseries)
+  bts <- laply(1:ncol(ts), function(i) {
+    perms <- tsbootstrap(ts[,i], nb=nperms, type=type, ...)
+    perms <- cbind(ts[,i], perms)
+    return(perms)
+  }, .progress="text")
+  bts <- aperm(bts, c(2,1,3))
+  return(bts)
+}
+
+boot.ts.meboot <- function(ts, nperms, ...) {
+  library(meboot)
+  bts <- laply(1:ncol(ts), function(i) {
+    perms <- meboot(ts[,i], reps=nperms, ...)
+    perms <- perms$ensemble
+    perms <- cbind(ts[,i], perms)
+    return(perms)
+  }, .progress="text")
+  bts <- aperm(bts, c(2,1,3))
+  return(bts)
+}
+
+boot.ts.wmtsa <- function(ts, nperms, ...) {
+  library(wmtsa)
+  list_to_mat <- function(l) sapply(l, function(v) v)
+  bts <- laply(1:ncol(ts), function(i) {
+    perms <- wavBootstrap(ts[,i], n.realization=nperms, ...)
+    perms <- list_to_mat(perms)
+    perms <- cbind(ts[,i], perms)
+    return(perms)
+  }, .progress="text")
+  bts <- aperm(bts, c(2,1,3))
+  return(bts)
+}
+```
+
+Let's test them out and get the resampled time-series!
+
+```{r}
+system.time(bts1 <- boot.ts.tseries(ts, nperms, type="block"))
+system.time(bts2 <- boot.ts.tseries(ts, nperms, type="stationary"))
+system.time(bts3 <- boot.ts.meboot(ts, nperms))
+system.time(bts4 <- boot.ts.wmtsa(ts, nperms))
+```
+
+### Compute Statistic (aka Bootstrapped Correlations)
+
+We now compute correlations for the original and permuted data. The result is a matrix of connections x permutations.
+
+```{r}
+cor.perms <- function(bts) {
+  nperms  <- dim(bts)[3]
+  bcors   <- aaply(bts, 3, function(x) {
+    upper(cor(x))
+  }, .progress="text")
+  bcors   <- t(bcors) # conns x perms
+  return(bcors)
+}
+```
+
+```{r}
+system.time(bcors1 <- cor.perms(bts1))
+system.time(bcors2 <- cor.perms(bts2))
+system.time(bcors3 <- cor.perms(bts3))
+system.time(bcors4 <- cor.perms(bts4))
+```
+
+### Compute Significance
+
+The permuted values for each connection strength act as a null distribution for that connection. Thus, we can compare the original connection strength to the permuted ones and obtain a p-value.
+
+```{r}
+sig.perms <- function(bcors) {
+  nperms <- ncol(bcors)
+  apply(bcors, 1, function(x) {
+    sum(abs(x[1]) <= abs(x))/nperms
+  })
+}
+system.time(bsigs1 <- sig.perms(bcors1))
+system.time(bsigs2 <- sig.perms(bcors2))
+system.time(bsigs3 <- sig.perms(bcors3))
+system.time(bsigs4 <- sig.perms(bcors4))
+```
+
+Sometimes it's easier when those p-values are represented as z-scores.
+
+```{r}
+bzvals1 <- p2z(bsigs1)
+bzvals2 <- p2z(bsigs2)
+bzvals3 <- p2z(bsigs3)
+bzvals4 <- p2z(bsigs4)
+```
+
+```{r}
+vnet <- upper(net)
+
+table(emp=bsigs1<0.01, real=vnet!=0)
+table(emp=bsigs2<0.01, real=vnet!=0)
+table(emp=bsigs3<0.01, real=vnet!=0)
+table(emp=bsigs4<0.05, real=vnet!=0)
+
+table(emp=nsigs1, real=vnet!=0)
+table(emp=nsigs2, real=vnet!=0)
+
+tmp1 <- fdrtool(bsigs1, statistic="pvalue", plot=F)
+tmp2 <- fdrtool(bsigs2, statistic="pvalue", plot=F)
+tmp3 <- fdrtool(bsigs3, statistic="pvalue", plot=F)
+tmp4 <- fdrtool(bsigs4, statistic="pvalue", plot=F)
+tmp5 <- fdrtool(cvec, statistic="correlation", plot=F)
+
+```

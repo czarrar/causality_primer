@@ -1,0 +1,107 @@
+---
+title: "Connectivity via Random Data"
+author: "Zarrar Shehzad"
+date: "July 12, 2014"
+output: html_document
+---
+
+Here, I want to test out different approaches for randomizing time-series data with the goal of creating a null model that can be used to set a threshold (e.g., p < 0.01) for correlations between time-series. I look specifically at thresholding on a different page. As an aside, if we are doing a task-based analysis, I wonder about the utility of using resting-state scans for the simulated data (e.g., randomly chop up in the same length as our trials). At the very least, this could serve as a good baseline even if it isn't very random.
+
+Anyway, I will be using some of the Steve Smith et al (200?) resting-state simulations to see how well the different randomization techniques work in generating a threshold for my correlations. A good randomization technique should help set a threshold that minimizes false positives and/or false negatives while maximizing detection of true positives and/or true negatives.
+
+The different techniques are:
+
+* Block-Based Bootstrapping (tsboot)
+* Block-Based Bootstrapping (tsbootstrap)
+* Entropy-Based Bootstrapping (meboot)
+* Wavelet-Based Bootstrapping (wmtsa)
+
+In sum, you will notice that I choose the last three approaches above. The `tsboot` function overlaps with the `tsbootstrap` function and isn't as fast or easy to use.
+
+## Setup
+
+```{r}
+# Functions needed for later
+upper <- function(x) x[upper.tri(x)]
+```
+
+
+## Block-Based Resampling (boot) - NO
+
+I am not totally what the `model` option in the `tsboot` function of the `boot` R package does but that is what will be used here. I think it has to do with resampling the data in time and with the `model` option, you don't have to choose the resample length.
+
+```{r}
+library(boot)
+
+tmp <- tsboot(ts, function(x) upper(cor(x)), R=99, orig.t=T)
+res <- rbind(tmp$t0, tmp$t)
+mean(res[1,1] <= res[,1]) # significance (doesn't work here)
+
+tmp <- tsboot(ts, function(x) upper(cor(x)), R=99, orig.t=T, sim="geom", l=20)
+res <- rbind(tmp$t0, tmp$t)
+mean(res[1,1] <= res[,1]) # significance
+
+tmp <- tsboot(ts, function(x) upper(cor(x)), R=99, orig.t=T, sim="fixed", l=20)
+res <- rbind(tmp$t0, tmp$t)
+mean(res[1,1] <= res[,1]) # significance
+```
+
+I don't like that I need to select a block length here. I guess I would need to look into the literature to figure out what a good block length is. Well for now, I might put this one down.
+
+
+## Block Based Resampling (tseries) - YES
+
+The following is taken from the function help of `tsbootstrap` in the R package `tseries`: *"generates bootstrap samples for general stationary data and computes the bootstrap
+estimate of standard error and bias if a statistic is given."*
+
+This function is a little easier to understand than the `tsboot` one and they mention that it is 10-30 times faster than `tsboot` so this should be the function of choice. There are two ways the bootstrap replicates can be generated:
+
+* **stationary**: stationary bootstrap scheme with mean block length set by user
+* **block**: blockwise bootstrap with block length fixed by user
+
+```{r}
+tmp <- tsbootstrap(ts[,1], nb=1, type="stationary")
+cor(ts[,1], ts[,2])
+cor(tmp, ts[,2])
+
+tmp <- tsbootstrap(ts[,1], nb=1, type="block")
+cor(ts[,1], ts[,2])
+cor(tmp, ts[,2])
+```
+
+So it seems one needs to bootstrap each time-series separately (which is fine) and I can then go about my business of doing my computations. In the above example, I didn't set the block length, which was auto-selected based on some criterian. Again, I would need to check the literature to see what an appropriate block length is or how to determine it or different block lengths that are required.
+
+
+## Maximum Entropy Bootstrap Replicates (meboot) - YES
+
+The details for the `meboot` function/package are pretty good so would suggest to look there.
+
+```{r}
+tmp <- meboot(ts[,1], reps=10, elaps=T)
+cor(ts[,1], ts[,2])
+cor(tmp$ensemble, ts[,2])
+```
+
+Seems easy to use but not totally sure like the other approaches what the strenghs are and what the weaknesses are here.
+
+
+## Wavelet-Based Bootstrapping - Yes
+
+Again I don't totally understand what this. From what I understand this does the bootstrap/randomization in frequency/wavelet domain. This keeps a lot of the properties of the time-series (not sure which ones though).
+
+```{r}
+list_to_mat <- function(l) sapply(l, function(v) v)
+tmp <- wavBootstrap(ts[,1], n.realization=10)
+cor(ts[,1], ts[,2])
+cor(list_to_mat(tmp), ts[,2])
+```
+
+
+range for pierre stuff [2*ceil(sqrt(T)) 3*ceil(sqrt(T))]
+code in python https://github.com/FCP-INDI/C-PAC/blob/c84bd3f5e8f1c6c5b19b2d171bb194cdd2f3e757/CPAC/basc/utils.py
+code in r https://github.com/grayclhn/oosanalysis-R-library/blob/9950a4a38a842b936d6a58d70c81c66e6579469d/R/bootindex.R
+paper http://www.sciencedirect.com/science/article/pii/S1053811910002697
+review http://books.google.com/books?hl=en&lr=&id=NOCYBtPzQFIC&oi=fnd&pg=PA3&dq=bootstrap+timeseries&ots=eXJxyqoNh-&sig=d4FbmPWkQTSHc2baNAz63zWxHv4
+
+opt.boot.lens <- np::b.star(ts, round=T)[,2]
+unique(opt.boot.lens[opt.boot.lens>1])

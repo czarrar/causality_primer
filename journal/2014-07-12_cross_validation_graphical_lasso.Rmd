@@ -1,0 +1,143 @@
+---
+title: "Cross Validation for Graphical Lasso"
+author: "Zarrar Shehzad"
+date: "July 12, 2014"
+output: html_document
+---
+
+# Background
+
+I was having a little bit of difficulty finding code to figure out an optimal lambda/rho (shrinkage parameter) to use for the graphical lasso. One typical approach is to use cross validation via log likelihood. This approach is described in a paper on the graphical lasso: [Sparse estimation of a covariance matrix](http://www.ncbi.nlm.nih.gov/pmc/articles/PMC3413177) and also in an earlier paper [Sparse inverse covariance estimation with the graphical lasso](http://www.ncbi.nlm.nih.gov/pmc/articles/PMC3019769). The log likelihood equation can be written as
+
+$$-log(det(S_1) - tr(S_2 * S_1') - p||S_1||_1$$
+
+where $S_1$ is your 'training' covariance matrix, $S_2$ is your 'test' covariance matrix, and p||S_1|| is the L1 norm...not sure if this is needed here. I of course still need to understand this step a bit better.
+
+# Their Code
+
+I found various code snippets, which seem to use slightly different implementions. I will list the different ones to help determine, which specific approach I will go with.
+
+### bglasso (matlab)
+
+This has a function called `glasso_cv` with inputs: 
+
+* Y: p by n data matrix
+* K: number of folds
+
+and the following relevant lines of code
+
+```{matlab} # TODO: turn off execution
+[p,n] = size(Y);
+k = floor(n/K);
+n_train = n-k;
+n_test = k;
+[W,M] = glasso_FTH(S_train/n_train,rho); %L1precisionBCD(S_train/n_train,rho);
+loglike(i,j) = log(det(M)) - trace(S_test/n_test*M);
+```
+
+### codesync (matlab)
+
+This snippet is similar to the above but without the trace business. The function is called `logDataLikelihood` with inputs:
+
+* S = empirical covariance of test
+* K = inverse covariance of training
+
+and the following code
+
+```{matlab}
+L = chol(K);
+logdetK = 2*sum(log(diag(L)));
+evid = logdetK-S(:)'*K(:);
+```
+
+Can be found [here](https://github.com/bernardng/codeSync/blob/master/covarianceEstimationBN/gaussianGraphicalModel/logDataLikelihood.m).
+
+
+### scikit-learn (python)
+
+This uses a function called `log_likelihood`. It like the others computes the sample mean of the log likelihood under a covariance model. Inputs are:
+
+* emp_cov: empirical covariance of test
+* precision: inverse covariance of training
+
+and the following code
+
+```{python}
+p = precision.shape[0]
+log_likelihood_ = - np.sum(emp_cov * precision) + fast_logdet(precision)
+log_likelihood_ -= p * np.log(2 * np.pi)
+log_likelihood_ /= 2.
+```
+
+Note that the `np.sum...` part is actually getting the trace of the matrix multiplication.
+
+Can be found [here](https://github.com/scikit-learn/scikit-learn/blob/6ebcf4d0208992baad1fa2851d2819c8ee1e5ace/sklearn/covariance/empirical_covariance_.py).
+
+
+## My Code
+
+### Log Likelihood
+
+The python code is most similar to the equation from the paper so I will follow that. The converted function is below
+
+```{r}
+# note: should divide emp_cov by number of tests?
+log_likelihood <- function(precision, emp_cov) {
+  p      <- nrow(precision)
+  logdet <- determinant(precision, logarithm=T)$modulus
+  loglik <- 0.5 * (logdet - sum(emp_cov * precision) - p*log(2*pi))
+  return(as.numeric(loglik))
+}
+```
+
+I suppose I can test it to see if it works (very generally):
+
+```{r}
+emp_cov <- matrix(rnorm(100), 10, 10)
+precision <- matrix(rnorm(100), 10, 10)
+log_likelihood(precision, emp_cov, 100)
+```
+
+### Cross Validation
+
+Below is a function that I've written to compute the log likelihood across a range of rhos for graphical lasso using k-fold cross validation. You have an option of specifying a range of rhos or the default is to automatically select a range. This automatic selection is based on only using rhos that give at least 5% sparsity (i.e., non-zero off-diagonal values). With this constraint, a range of rhos is selected with length of 100.
+
+```{r}
+glasso_cv <- function(ts, k=5, rholist=NULL, verbose=T) {
+  library(glasso)
+  library(cvTools)
+    
+  if (is.null(rholist)) {
+    # We will determine the maximum rho as one where the inverse covariance
+    # has at least 5% non-zero off-diagonal elements (arbitrary)
+    S       <- cov(ts)
+    rholist <- seq(0, max(abs(S)), length=11)[-1]
+    GLP     <- glassopath(S, rholist, trace=0)
+    nonzeros<- apply(GLP$wi, 3, function(x) mean(x[upper.tri(x)]!=0))
+    max.rho <- max(rholist[nonzeros > 0.05], rholist[1])
+    
+    # Now make the list of rhos
+    rholist <- seq(0, max.rho, length=100)
+  }
+  
+  n     <- nrow(ts)
+  folds <- cvFolds(n, k, type="consecutive")
+  
+  loglikes <- sapply(1:k, function(ki) {
+    if (verbose) cat("Fold ", ki, "\n")
+    S_train <- cov(ts[folds$which!=ki,])
+    S_test  <- cov(ts[folds$which==ki,])
+    GLP     <- glassopath(S_train, rholist, trace=0)
+    loglike <- apply(GLP$wi, 3, function(P_train) log_likelihood(P_train, S_test))
+    loglike
+  })
+  
+  ind     <- which.max(rowMeans(loglikes))
+  rhomax  <- rholist[ind]
+  S       <- cov(ts)
+  a       <- glasso(S, rhomax)
+  a$rhomax <- rhomax
+  
+  return(a)
+}
+```
