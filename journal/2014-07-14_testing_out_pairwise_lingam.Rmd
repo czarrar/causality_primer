@@ -1,0 +1,27 @@
+---
+title: "Testing Out Pairwise Lingam"
+author: "Zarrar Shehzad"
+date: "07/14/2014"
+output: html_document
+---
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+source('~/Dropbox/Research/yale/causality_primer/lib/lingan/pwling.R')
+
+system.time(orientations.detected <- sapply(1:5, function(i) {
+  cat("\nmethod", i, "\n")
+  dirmat <- pwling(t(ts), i)
+  tpr <- mean(sign(upper(dirmat)[upper(net)!=0]) == 1)
+  fpr <- mean(sign(upper(dirmat)[upper(net)==0]) == 1)
+  c(tpr=tpr, fpr=fpr)
+}))
+
+colnames(orientations.detected) <- c("EB", "Tanh", "Skew", "RSkew", "DBSkew")
+round(orientations.detected,2)*100
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
