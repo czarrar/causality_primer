@@ -48,7 +48,7 @@ mentappr <- function(x, standardize=FALSE) {
 #      input -3 or -4 as the method.
 # See http://www.cs.helsinki.fi/u/ahyvarin/code/pwcausal/ for more information
 
-pwling <- function(X, method, verbose=TRUE) {
+pwling <- function(X, method, C=NULL, verbose=TRUE) {
   library(moments) # for measure of skewness
   
   if (verbose) {
@@ -74,7 +74,7 @@ pwling <- function(X, method, verbose=TRUE) {
   
   # Compute covariance matrix
   vcat("computing covariance")
-  C <- cov(t(X))
+  if (is.null(C)) C <- cov(t(X))
   
   # Compute causality measures
   ############################
@@ -89,7 +89,7 @@ pwling <- function(X, method, verbose=TRUE) {
     LR <- matrix(0, nvars, nvars)
     
     # Loop throgh pairs
-    pb <- progressbar(nvars)
+    if (verbose) pb <- progressbar(nvars)
     for (i in 1:nvars) {
       for (j in 1:nvars) {
         if (i == j) next
@@ -97,9 +97,9 @@ pwling <- function(X, method, verbose=TRUE) {
         res2 <- X[i,] - C[i,j]*X[j,]
         LR[i,j] <- mentappr(X[j,]) - mentappr(X[i,]) - mentappr(res1) + mentappr(res2)
       }
-      update(pb, i)
+      if (verbose) update(pb, i)
     }
-    end(pb)
+    if (verbose) end(pb)
   } 
   # First-order approximation of LR by tanh, for sparse variables
   else if (method == 2) {
