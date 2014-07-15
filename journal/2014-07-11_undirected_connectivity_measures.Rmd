@@ -31,38 +31,38 @@ I will now compute both the full correlations and several different approaches f
 # Function that calculates numerous correlation/covariance measures
 compute_correlations <- function(ts) {
   cat("#full correlation\n")
-  corr.full <- cor(ts)
+  print(system.time(corr.full <- cor(ts)))
   
   cat("#inverse covariance\n")
   library(MASS)
-  pcorr.icov <- -ginv(cov(ts))
+  print(system.time(pcorr.icov <- -ginv(cov(ts))))
   
   cat("#inverse covariance with shrinkage (corpcor)\n")
   library(corpcor)
-  pcorr.invcov <- -cov2cor(invcov.shrink(ts))
+  print(system.time(pcorr.invcov <- -cov2cor(invcov.shrink(ts))))
   
   # ICOV: graphical lasso
   cat("#graphical lasso (glasso)\n")
-  tmp <- glasso_cv(ts)
+  print(system.time(tmp <- glasso_cv(ts)))
   pcorr.glasso <- -cov2cor(tmp$wi)
   
   # ICOV: lasso
   cat("#partial correlations via adaptive lasso (parcor)\n")
   library(parcor)
-  tmp <- adalasso.net(ts, k=5, verbose=T)
+  print(system.time(tmp <- adalasso.net(ts, k=5, verbose=T)))
   pcorr.lasso <- tmp$pcor.adalasso
   
   # ICOV: ridge
   cat("#partial correlations via ridge regression (parcor)\n")
   library(parcor)
-  tmp <- ridge.net(ts, k=5, verbose=T)
+  print(system.time(tmp <- ridge.net(ts, k=5, verbose=T)))
   pcorr.ridge <- tmp$pcor
   cat("\n")
   
   # ICOV: Ledoit-Wolf
   cat("#inverse covariance with ledoit-wolf shrinkage (BurStFin)\n")
   library(BurStFin)
-  ctmp <- var.shrink.eqcor(ts)
+  print(system.time(ctmp <- var.shrink.eqcor(ts)))
   itmp <- solve(ctmp)
   pcorr.lw <- -cov2cor(itmp)
   
@@ -131,6 +131,10 @@ c(true=ztp(res<0.01), false=zfp(res<0.01))
 res <- fdrtool(upper(mbs$p.model), "pvalue", plot=F, verbose=F)$lfdr
 c(true=ztp(res<0.05), false=zfp(res<0.05))
 c(true=ztp(res<0.01), false=zfp(res<0.01))
+
+res <- fdrtool(upper(mbs$p.sand), "pvalue", plot=F, verbose=F)$qval
+c(true=ztp(res<0.01), false=zfp(res<0.01))
+
 
 # using glassoscore not as good
 gls <- glassoscore(ts, tmp$rhomax)

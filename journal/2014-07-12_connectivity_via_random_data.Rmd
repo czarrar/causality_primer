@@ -105,3 +105,59 @@ review http://books.google.com/books?hl=en&lr=&id=NOCYBtPzQFIC&oi=fnd&pg=PA3&dq=
 
 opt.boot.lens <- np::b.star(ts, round=T)[,2]
 unique(opt.boot.lens[opt.boot.lens>1])
+
+
+```{r}
+zboots.circularblock <- function(ts, reps=1, drop=FALSE) {
+  suppressPackageStartupMessages(library(niftir)) # for progressbar
+  resamp.ts  <- array(NA, c(dim(ts), reps))
+  pb <- progressbar(reps)
+  for (i in 1:reps) {
+    if (!(i %% 10)) update(pb, i)
+    block.lens <- zboots.circularblock.lens(ts) # block lengths
+    block.inds <- zboots.circularblock.inds(nrow(ts), block.lens) # block indices
+    resamp.ts[,,i]  <- ts[block.inds,]
+  }
+  end(pb)
+  if ((reps == 1) && (drop == T)) {
+    return(resamp.ts[,,1])
+  } else {
+    return(resamp.ts)
+  }
+}
+
+# block lengths
+zboots.circularblock.lens <- function(ts) {
+  # First get optimal length via Patton et al. (2009)
+  # but keep minimal length to >1 per Bellec et al. (?)
+  library(np)
+  nbs1  <- b.star(ts, round=T)
+  nbs1  <- sort(unique(nbs1[,2]))
+  nbs1  <- nbs1[nbs1>1]
+  
+  # Second we get recommended lengths from Bellec et al. (?)
+  nobs  <- nrow(ts)
+  nbs2  <- c(2,3) * ceiling(sqrt(nobs))
+  
+  # Combine those together
+  blocklens <- sort(unique(c(nbs1, nbs2)))
+  
+  return(blocklens)
+}
+
+# borrowed/updated from
+# https://github.com/grayclhn/oosanalysis-R-library/blob/9950a4a38a842b936d6a58d70c81c66e6579469d/R/bootindex.R
+zboots.circularblock.inds <- function(nobs, blocklens) {
+  # randomly select one of the block lengths if more than 1
+  blocklen <- ifelse(length(blocklens)>1, sample(blocklens, 1), blocklens)
+  
+  blockstarts <- sample(seq_len(nobs), ceiling(nobs / blocklen),
+                        replace = TRUE)
+  indices <-
+    as.vector(sapply(blockstarts, function(s)
+                     (s + seq_len(blocklength) - 2) %% nobs + 1))[seq_len(nobs)]
+  attr(indices, "starts") <- blockstarts
+  attr(indices, "length") <- blocklen
+  indices
+}
+```

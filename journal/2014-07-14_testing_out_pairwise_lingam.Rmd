@@ -10,18 +10,52 @@ This is an R Markdown document. Markdown is a simple formatting syntax for autho
 When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 
 ```{r}
+library(plyr)
 source('~/Dropbox/Research/yale/causality_primer/lib/lingan/pwling.R')
+upper <- function(x) x[upper.tri(x)]
+basedir <- "~/Dropbox/Research/yale/causality_primer/netsim"
 
-system.time(orientations.detected <- sapply(1:5, function(i) {
-  cat("\nmethod", i, "\n")
-  dirmat <- pwling(t(ts), i)
-  tpr <- mean(sign(upper(dirmat)[upper(net)!=0]) == 1)
-  fpr <- mean(sign(upper(dirmat)[upper(net)==0]) == 1)
-  c(tpr=tpr, fpr=fpr)
-}))
+system.time(stprs <- ldply(1:50, function(si) {
+  ts    <- as.matrix(read.table(sprintf("%s/data/sim02/sub%02i_ts.txt", basedir, si)))
+  net   <- as.matrix(read.table(sprintf("%s/data/sim02/sub%02i_net.txt", basedir, si)))
+  
+  tprs <- sapply(1:5, function(i) {
+    #cat("\nmethod", i, "\n")
+    dirmat <- pwling(t(ts), i, verbose=F)
+    tpr <- mean(sign(upper(dirmat)[upper(net)!=0]) == 1)
+    #fpr <- mean(sign(upper(dirmat)[upper(net)==0]) == 1)
+    #c(tpr=tpr, fpr=fpr)
+    return(tpr)
+  })
+  
+  return(tprs)
+}, .progress="text"))
 
-colnames(orientations.detected) <- c("EB", "Tanh", "Skew", "RSkew", "DBSkew")
-round(orientations.detected,2)*100
+colnames(stprs) <- c("EB", "Tanh", "Skew", "RSkew", "DBSkew")
+round(colMeans(stprs)*100)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Reshape into data frame.
+
+```{r}
+library(reshape)
+stprs$subject <- 1:50
+df.acc <- melt(stprs, "subject")
+colnames(df.acc)[2:3] <- c("measure", "accuracy")
+```
+
+Plot
+
+```{r}
+library(ggplot2)
+
+ggplot(df.acc, aes(measure, accuracy*100)) + 
+  geom_violin() + 
+  geom_boxplot(width=.1, outlier.size=0, fill="gray90") + 
+  xlab("Measure") + 
+  ylab("Accuracy") + 
+  ylim(0,100)
+```
+
+
+
