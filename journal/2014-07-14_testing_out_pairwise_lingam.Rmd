@@ -2,60 +2,150 @@
 title: "Testing Out Pairwise Lingam"
 author: "Zarrar Shehzad"
 date: "07/14/2014"
-output: html_document
+output:
+  html_document:
+    toc: yes
 ---
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+**_Please click plot above to skip to the results_**
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+We are looking at the accuracy of the pairwise lingam approaches from [cite paper] in determing the correct direction of connections. Accuracy of the approach will be tested here with the Smith et al (2011) simulation dataset.
 
-```{r}
+I haven't done any filtering but I'm not sure if the simulation dataset came unfiltered?
+
+
+# Setup
+
+```{r setup}
 library(plyr)
-source('~/Dropbox/Research/yale/causality_primer/lib/lingan/pwling.R')
-upper <- function(x) x[upper.tri(x)]
-basedir <- "~/Dropbox/Research/yale/causality_primer/netsim"
-
-system.time(stprs <- ldply(1:50, function(si) {
-  ts    <- as.matrix(read.table(sprintf("%s/data/sim02/sub%02i_ts.txt", basedir, si)))
-  net   <- as.matrix(read.table(sprintf("%s/data/sim02/sub%02i_net.txt", basedir, si)))
-  
-  tprs <- sapply(1:5, function(i) {
-    #cat("\nmethod", i, "\n")
-    dirmat <- pwling(t(ts), i, verbose=F)
-    tpr <- mean(sign(upper(dirmat)[upper(net)!=0]) == 1)
-    #fpr <- mean(sign(upper(dirmat)[upper(net)==0]) == 1)
-    #c(tpr=tpr, fpr=fpr)
-    return(tpr)
-  })
-  
-  return(tprs)
-}, .progress="text"))
-
-colnames(stprs) <- c("EB", "Tanh", "Skew", "RSkew", "DBSkew")
-round(colMeans(stprs)*100)
-```
-
-Reshape into data frame.
-
-```{r}
 library(reshape)
-stprs$subject <- 1:50
-df.acc <- melt(stprs, "subject")
-colnames(df.acc)[2:3] <- c("measure", "accuracy")
-```
-
-Plot
-
-```{r}
 library(ggplot2)
 
-ggplot(df.acc, aes(measure, accuracy*100)) + 
-  geom_violin() + 
-  geom_boxplot(width=.1, outlier.size=0, fill="gray90") + 
-  xlab("Measure") + 
-  ylab("Accuracy") + 
-  ylim(0,100)
+source('~/Dropbox/Research/yale/causality_primer/lib/lingan/pwling.R')
+upper   <- function(x) x[upper.tri(x)]
+
+basedir <- "~/Dropbox/Research/yale/causality_primer/netsim"
+nsubjs  <- 50
+nsims   <- 28
+
+# duration=mins; ts=secs; noise=%; hrf.std=s
+df.specs<- read.csv(file.path(basedir, "data", "sim_specs.csv"), skip=2)
 ```
 
+
+# Analysis
+
+Here we calculate the direction of only the correct connections across the 28 simulations. Note that the speed of running each simulation for each subject and each of 7 methods is very fast.
+
+[TODO: add description on each LiNGAM method.]
+
+```{r analysis, cache=TRUE}
+df.tprs <- ldply(1:nsims, function(simi) {
+  cat("Running simulation", simi, "\n")
+  
+  print(system.time(subj.tprs <- ldply(1:nsubjs, function(subi) {
+    ts    <- as.matrix(read.table(sprintf("%s/data/sim%02i/sub%02i_ts.txt", basedir, simi, subi)))
+    net   <- as.matrix(read.table(sprintf("%s/data/sim%02i/sub%02i_net.txt", basedir, simi, subi)))
+    diag(net) <- 0
+    
+    tprs  <- sapply(c(1,2,-3,3,-4,4,5), function(i) {
+      #cat("\nmethod", i, "\n")
+      dirmat <- pwling(t(ts), i, verbose=F)
+      tpr <- mean(sign(dirmat[net!=0]) == 1)
+      #fpr <- mean(sign(upper(dirmat)[upper(net)==0]) == 1)
+      #c(tpr=tpr, fpr=fpr)
+      return(tpr)
+    })
+    
+    df <- data.frame(
+      subject = rep(subi, length(tprs)), 
+      measure = c("EB", "Tanh", "Skew", "SkewCorr", "RSkew", "RSkewCorr", "DBSkew"), 
+      accuracy = tprs
+    )
+        
+    return(df)
+  })))
+  
+  subj.tprs$simulation <- simi
+  
+  return(subj.tprs)
+})
+
+# Ensure factors are in order I gave
+df.tprs$measure <- factor(df.tprs$measure, levels=c("EB", "Tanh", "Skew", "SkewCorr", "RSkew", "RSkewCorr", "DBSkew"),  labels=c("EB", "Tanh", "Skew", "SkewCorr", "RSkew", "RSkewCorr", "DBSkew"))
+```
+
+Get the mean accuracy across subjects for each simulation
+
+```{r summary}
+sum.tprs <- ddply(df.tprs, .(simulation, measure), colwise(mean))
+sum.tprs <- sum.tprs[,-3]
+sum.tprs$accuracy <- round(sum.tprs$accuracy*100)
+sum.tprs <- cast(sum.tprs, simulation~measure, value="accuracy")
+print(sum.tprs)
+```
+
+# Plot
+
+Plot each simulation separately
+
+```{r plot}
+for (simi in 1:nsims) {
+  rs            <- df.specs[simi,]
+  plot.title    <- sprintf("Simulation %i", simi)
+  plot.subtitle <- sprintf("%i nodes, %.1f mins, TR=%.1f, noise=%.1f, HRFstd=%.1f", rs$num.nodes, rs$duration, rs$tr, rs$noise, rs$hrf.std)
+  if (rs$other != "") plot.subtitle <- sprintf("%s (NOTE: %s)", plot.subtitle, rs$other)
+
+  sdf.tprs <- subset(df.tprs, simulation==simi)
+  p <- ggplot(sdf.tprs, aes(measure, accuracy*100)) + 
+    geom_hline(yintercept=50, linetype=2, color="grey50") + 
+    geom_violin() + 
+    geom_errorbar(stat="hline", yintercept="mean", width=0.25, aes(ymax=..y..,ymin=..y..)) +
+    xlab("Measure") + 
+    ylab("Accuracy (% Directions Correct)") + 
+    ylim(0,100) + 
+    ggtitle(bquote(atop(.(plot.title), atop(italic(.(plot.subtitle)), ""))))
+  
+  plot(p)
+}
+```
+
+Finally, we can get an overview of the more high performing methods across the different simulations.
+
+```{r plot-overview}
+df.tprs2 <- subset(df.tprs, measure %in% c("Tanh", "Skew", "RSkew"))
+
+p <- ggplot(df.tprs2, aes(as.factor(simulation), accuracy*100, color=measure)) +
+  geom_hline(yintercept=50, linetype=2, color="grey50") + 
+  #geom_point(position=position_jitter(width=0.1)) + 
+  geom_boxplot(width=.2, fill="gray50") + 
+  geom_errorbar(stat="hline", yintercept="mean", width=0.25, aes(ymax=..y..,ymin=..y..)) +
+  facet_grid(measure~.) + 
+  xlab("Simulation") + 
+  ylab("Accuracy (% of Directions Correct") + 
+  theme(legend.position="none")
+plot(p)
+```
+
+We can see from these summary plot that the three approaches do well on most simulations. The problematic simulations include:
+
+- Simulation 8: shared inputs
+- Simulation 10: global mean confound
+- Simulation 13: backward connection
+- Simulation 22: non-stationary connection strengths
+- Simulation 24: only one strong external input
+- Simulation 26: only 2.5mins and higher noise
+
+Below, we rank each method by simulation to further distinguish the methods.
+
+```{r plot-overview-rank}
+mean.acc <- ddply(df.tprs2, .(simulation, measure), function(x) {
+  c(accuracy=mean(x$accuracy))
+})
+rank.acc <- ddply(mean.acc, .(simulation), function(x) {
+  c(measure=x$measure[which.max(x$accuracy)])
+})
+print(rank.acc)
+```
 
 

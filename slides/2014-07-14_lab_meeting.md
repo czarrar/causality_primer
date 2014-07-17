@@ -33,12 +33,7 @@ Example Causal Network
 
 This is a simulated network from a sample subject taken from Steve Smith et al. (2011).
 
-```{r, echo=FALSE}
-library(sna)
-setwd("~/Dropbox/Research/yale/causality_primer/netsim")
-net   <- as.matrix(read.table("data/sim02/sub01_net.txt")) # reference
-gplot(net)
-```
+![plot of chunk unnamed-chunk-1](2014-07-14_lab_meeting-figure/unnamed-chunk-1.png) 
 
 
 Six+ Issues for Causal Inference
@@ -60,12 +55,7 @@ Issues with recurrent networks
 
 One issue is that connections can be bi-directional due to recurrent information processing.
 
-```{r, echo=FALSE}
-library(sna)
-setwd("~/Dropbox/Research/yale/causality_primer/netsim")
-net   <- as.matrix(read.table("data/sim13/sub01_net.txt")) # reference
-gplot(net)
-```
+![plot of chunk unnamed-chunk-2](2014-07-14_lab_meeting-figure/unnamed-chunk-2.png) 
 
 
 What are some options?
@@ -113,20 +103,13 @@ SEM or Path Analysis
 
 ## Imagine Time-Series X->Y
 
-```{r, echo=FALSE}
-library(sna)
-setwd("~/Dropbox/Research/yale/causality_primer/netsim")
-ts   <- as.matrix(read.table("data/sim01/sub01_ts.txt"))[,1:2]
-colnames(ts) <- c("X", "Y")
-X <- ts[,1]
-Y <- ts[,2]
-plot.ts(ts[,1:2], ylab="BOLD", main=NA)
-```
+![plot of chunk unnamed-chunk-3](2014-07-14_lab_meeting-figure/unnamed-chunk-3.png) 
 
 Residuals
 ========================================================
 
-```{r}
+
+```r
 fit <- lm(X ~ Y)
 ```
 
