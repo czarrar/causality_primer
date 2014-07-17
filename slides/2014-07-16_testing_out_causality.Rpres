@@ -1,0 +1,109 @@
+Testing Causality
+========================================================
+author: Zarrar Shehzad
+date: 2014-07-16
+
+Imagine the following connected nodes
+========================================================
+
+- X = red
+- Y = blue
+
+```{r, echo=FALSE, fig.width=12, fig.height=4}
+library(sna)
+setwd("~/Dropbox/Research/yale/causality_primer/netsim")
+ts   <- as.matrix(read.table("data/sim01/sub01_ts.txt"))[,1:2]
+xy <- ts(ts, start=0, deltat=3, names=c("X", "Y"))
+plot.ts(xy, plot.type="single", ylab="BOLD", main=NA, col=c(2,4), lwd=2, ylim=c(-8,8))
+```
+
+Let's try to see the distribution of each
+========================================================
+
+```{r}
+library(ggplot2)
+library(reshape)
+df <- melt(xy)
+colnames(df) <- c("tpts", "node", "signal")
+ggplot(df, aes(x=signal, color=node, group=node)) + 
+#  geom_freqpoly(aes(y=..density..), binwidth=0.5, linetype=2) + 
+  geom_density(adjust=0.5)
+```
+
+
+Let's see the effect of regressing y|x and x|y
+========================================================
+
+```{r}
+fity.x <- lm(Y ~ X, data=as.data.frame(xy))
+fitx.y <- lm(X ~ Y, data=as.data.frame(xy))
+y.x <- fity.x$residuals + mean(xy[,2])
+x.y <- fitx.y$residuals + mean(xy[,1])
+xy2 <- cbind(x.0=xy[,1], y.0=xy[,2], x.1=x.y, y.1=y.x)
+```
+
+
+Let's see the effect of regressing y|x and x|y
+========================================================
+
+```{r}
+df <- melt(xy2)
+colnames(df) <- c("tpts", "node.conditional", "signal")
+tmp <- strsplit(as.character(df$node.conditional), "[.]")
+df$node <- sapply(tmp, function(x) x[1])
+df$conditional <- sapply(tmp, function(x) x[2])
+```
+
+Let's see the effect of regressing x|y and y|x
+========================================================
+
+```{r}
+ggplot(df, aes(x=signal, color=conditional)) + 
+  geom_density(adjust=0.5) + 
+  facet_grid(~node)
+```
+
+Variance
+========================================================
+
+```{r}
+res <- ddply(df, .(node.conditional), colwise(var, .(signal)))
+msg <- paste("x   = %.2f", "x|y = %.2f", "y   = %.2f", "y|x = %.2f", sep="\n")
+sig <- res$signal
+cat(sprintf(msg, sig[1], sig[2], sig[3], sig[4]))
+```
+
+Difference in Variance
+========================================================
+
+It appears that $x$  has more of an influence on $y$.
+
+```{r}
+res <- ddply(df, .(node.conditional), colwise(var, .(signal)))
+msg <- paste("x - x|y = %.2f", "y - y|x = %.2f", sep="\n")
+sig <- res$signal
+cat(sprintf(msg, sig[1] - sig[2], sig[3] - sig[4]))
+```
+
+
+Other Moments
+========================================================
+
+We can also look at skewness and variance.
+
+```{r}
+library(moments)
+round(skewness(xy2), 4)
+round(kurtosis(xy2), 4)
+```
+
+
+Probabilities
+========================================================
+
+```{r}
+# can use freq2d (r2d2) or hist2d (gplots)
+freq2d(x,y)
+mi.plugin
+KL.plugin
+```
