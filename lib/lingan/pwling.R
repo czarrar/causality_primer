@@ -52,7 +52,7 @@ pwling <- function(X, method, C=NULL, verbose=TRUE) {
   library(moments) # for measure of skewness
   
   if (verbose) {
-    suppressPackageStartupMessages(library(niftir)) # for progressbar
+    suppressMessages(library(niftir)) # for progressbar
     vcat <- function(msg, ...) cat(sprintf(msg, ...), "\n")
   } else {
     vcat <- function(x) invisible(NULL)

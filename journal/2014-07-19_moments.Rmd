@@ -1,0 +1,216 @@
+---
+title: "Moments"
+author: "Zarrar Shehzad"
+date: "July 19, 2014"
+output: html_document
+---
+
+I am looking to run tests on causality using moments of distributions:
+
+* variance
+* skewness
+* kurtosis
+
+Although other approaches seem to measure these too, they don't appear to do this directly or it isn't totally clear how those moments might change with different operations. The goal here then is to get a more low-level understanding of what might happen to those moments when testing causality.
+
+# Setup
+
+```{r setup}
+setwd("/Users/zarrar/Dropbox/Research/yale/causality_primer")
+suppressMessages(library(plyr))
+source("lib/moments.R")
+
+sim   <- 1 # sim <- 13
+nsubs <- 50
+upper <- function(x) x[upper.tri(x)]
+
+# all the ground-truth connections/network
+all.net <- laply(1:nsubs, function(i) {
+  net <- read.table(sprintf("netsim/data/sim%02i/sub%02i_net.txt", sim, i))
+  as.matrix(net)
+})
+names(dim(all.net)) <- c("subj", "node", "node")
+
+# all the simulated time-series
+all.ts <- laply(1:nsubs, function(i) {
+  ts <- read.table(sprintf("netsim/data/sim%02i/sub%02i_ts.txt", sim, i))
+  as.matrix(ts)
+})
+names(dim(all.ts)) <- c("subj", "tpts", "node")
+
+ntpts  <- dim(all.ts)[2]
+nnodes <- dim(all.ts)[3]
+```
+
+```{r try-moments}
+set.seed(1234)
+sample_moments(rnorm(1000))
+```
+
+# One Subject
+
+For a sample subject, let's examine the change in the distribution moments for $g(x) to g(x|y)$ and $g(y) to g(y|x)$ where g is some moment or other property of a distribution.
+
+```{r setup-one-subject}
+net <- all.net[1,,]
+ts <- all.ts[1,,]
+```
+
+Let's first try this with one connection (one that actually exists and is x->y).
+
+```{r setup-one-connection}
+x   <- scale(ts[,1]) # can try not scaling too
+y   <- scale(ts[,2])
+x.y <- lm(x ~ y)$residuals + mean(x)
+y.x <- lm(y ~ x)$residuals + mean(y)
+
+cat("x -> y:", net[1,2], "\n")
+cat("y -> x:", net[2,1], "\n")
+```
+
+We can visualize the effect of the regression and can see that it appears fairly minimal. Black background is the original (x or y) and the red overlay is the residual signal (x|y or y|x).
+
+```{r visualize-one-connection}
+plot.ts(cbind(x, x.y), plot.type = "single", xlab="Time-Points", ylab="BOLD", 
+        main="x, x|y", col=c("black", "red"), lwd=c(1,2), lty=c(1,3))
+plot.ts(cbind(y, y.x), plot.type = "single", xlab="Time-Points", ylab="BOLD", 
+        main="y, y|x", col=c("black", "red"), lwd=c(1,2), lty=c(1,3))
+```
+
+Finally, we can get the moments/etc for all these four time-series. Note again that moments 1-2 are the same as the mean and the variance.
+
+```{r moments-one-connection}
+df <- data.frame(
+  x.y=sample_moments(x.y), 
+  x=sample_moments(x), 
+  y.x=sample_moments(y.x), 
+  y=sample_moments(y)
+)
+print(round(df, 3))
+```
+
+Let's see how the arrow of causality compares when we do $p(x|y) - p(x)$ and $p(y|x) - p(x)$.
+
+```{r compare-moments-one-connection}
+df.compare <- data.frame(
+  x = df$x.y - df$x, 
+  y = df$y.x - df$y, 
+row.names=row.names(df))
+df.compare$d <- df.compare$x - df.compare$y
+print(round(df.compare, 3))
+```
+
+```{r}
+rn <- rownames(unnamed(ts[,1], ts[,2]))[-c(1:2,6)]
+ret <- laply(1:nnodes, function(i) {
+  laply(1:nnodes, function(j) {
+    unnamed(ts[,i], ts[,j])$x_to_y[-c(1:2,6)] # mean and variance repeat
+  })
+})
+dim(ret) <- c(prod(dim(ret)[1:2]), dim(ret)[3])
+ret <- ret[which(upper.tri(net)),]
+colnames(ret) <- rn
+
+summary(lm(upper(net) ~ ret[,1:8]))
+```
+
+
+```{r}
+rn <- rownames(unnamed(ts[,1], ts[,2]))[-c(1:2,6)]
+ret <- laply(1:nsubs, function(si) {
+  ts <- all.ts[si,,]
+  ret <- laply(1:nnodes, function(i) {
+    laply(1:nnodes, function(j) {
+      unnamed(ts[,i], ts[,j])$x_to_y[-c(1:2,6)] # mean and variance repeat
+    })
+  })
+  dim(ret) <- c(prod(dim(ret)[1:2]), dim(ret)[3])
+  ret <- ret[which(upper.tri(net)),]
+  colnames(ret) <- rn
+  return(ret)
+})
+ret2 <- ret
+dim(ret2) <- c(prod(dim(ret2)[1:2]), dim(ret2)[3])
+colnames(ret2) <- rn
+
+ref1 <- t(sapply(1:nsubs, function(si) {
+  net <- all.net[si,,] + t(all.net[si,,]) # in case you have backwards connections
+  upper(net)
+}))
+ref <- as.vector(ref1)
+
+# note here we are taking the accuracy of each connection across subjects
+# - means you should flip the measure
+apply(ret, c(2,3), function(x) sign(mean(x>0)-0.5)*max(mean(x>0), mean(x<0)))[upper(net)!=0,]
+
+
+# For backwards connections
+look <- laply(1:50, function(j) {
+  tmp <- t(laply(1:11, function(i) {
+    ret[j,,i] * sign(ref1[j,])
+  }))
+  colnames(tmp) <- rn
+  return(tmp)
+})
+look2 <- look
+dim(look2) <- c(prod(dim(look2)[1:2]), dim(look2)[3])
+colnames(look2) <- rn
+
+apply(ret, c(2,3), function(x) sign(mean(x>0)-0.5)*max(mean(x>0), mean(x<0)))[upper(net)!=0,]
+
+# TODO: 
+# try to add this (2 if both things are satisfied)
+# get some number system on the other combinations (maybe something useful there on the backward connections)
+sign(agostino.test(x.y)$statistic[[1]] - agostino.test(x)$statistic[[1]]) - sign(agostino.test(y.x)$statistic[[2]] - agostino.test(y)$statistic[[2]])
+```
+
+# with backward connections
+   moment.3 moment.4 moment.5 cumulant.3 cumulant.4 cumulant.5  mean   var skewness kurtosis kurtosis.geary
+1     -0.72    -0.52    -0.62      -0.72       0.54       0.62 -0.62 -0.66    -0.74     0.54           0.62
+3     -0.86     0.56    -0.80      -0.84       0.62       0.66  0.00 -0.56    -0.86     0.66           0.54
+6     -0.74     0.58    -0.70      -0.74       0.60       0.66 -0.50 -0.54    -0.72     0.58          -0.58
+7     -0.74    -0.80    -0.68      -0.74      -0.58       0.68 -0.48 -0.94    -0.74    -0.60           0.62
+10    -0.88     0.58    -0.82      -0.86       0.68       0.60 -0.54 -0.82    -0.86     0.68           0.64
+
+
+
+```{r}
+rn <- rownames(unnamed(ts[,1], ts[,2]))[-c(1:2,6)]
+ret <- laply(1:nsubs, function(si) {
+  ts <- all.ts[si,,]
+  ret <- laply(1:nnodes, function(i) {
+    laply(1:nnodes, function(j) {
+      unnamed(ts[,i], ts[,j], to.scale=T)$x_to_y[-c(1:2,6)] # mean and variance repeat
+    })
+  })
+  dim(ret) <- c(prod(dim(ret)[1:2]), dim(ret)[3])
+  ret <- ret[which(upper.tri(net)),]
+  colnames(ret) <- rn
+  return(ret)
+})
+ret2 <- ret
+dim(ret2) <- c(prod(dim(ret2)[1:2]), dim(ret2)[3])
+colnames(ret2) <- rn
+
+ref <- t(sapply(1:nsubs, function(si) upper(all.net[si,,])))
+ref <- as.vector(ref)
+res <- lm(ref ~ ret2)
+
+# note here we are taking the accuracy of each connection across subjects
+# - means you should flip the measure
+apply(ret, c(2,3), function(x) sign(mean(x>0)-0.5)*max(mean(x>0), mean(x<0)))[upper(net)!=0,]
+```
+
+   moment.3 moment.4 moment.5 cumulant.3 cumulant.4 cumulant.5  mean   var skewness kurtosis kurtosis.geary
+1     -0.84    -0.66    -0.76      -0.84      -0.74       0.70 -0.50  0.62    -0.84    -0.72           0.86
+3     -0.84    -0.64    -0.72      -0.78      -0.68       0.92 -0.58 -0.52    -0.80    -0.68           0.72
+6     -0.72    -0.62    -0.60      -0.72      -0.66       0.62  0.60  0.52    -0.76    -0.68           0.68
+7     -0.82     0.52    -0.70      -0.80      -0.64       0.72 -0.62  0.80    -0.80    -0.60           0.84
+10    -0.76     0.60    -0.66      -0.76       0.52       0.62  0.52  0.70    -0.78    -0.56           0.64
+
+   moment.3 moment.4 moment.5 cumulant.3 cumulant.4 cumulant.5  mean   var skewness kurtosis kurtosis.geary
+1     -0.86    -0.74    -0.82      -0.86      -0.74       0.68 -0.52 -0.24    -0.84    -0.72           0.86
+3     -0.78    -0.68    -0.74      -0.78      -0.68       0.90  0.54 -0.30    -0.80    -0.68           0.72
+6     -0.68    -0.66    -0.60      -0.68      -0.66       0.60  0.54 -0.32    -0.76    -0.68           0.68
+7     -0.82    -0.66    -0.70      -0.82      -0.66       0.72  0.00 -0.28    -0.80    -0.60           0.84
+10    -0.74     0.54    -0.68      -0.74       0.54       0.66 -0.52 -0.32    -0.78    -0.56           0.64
